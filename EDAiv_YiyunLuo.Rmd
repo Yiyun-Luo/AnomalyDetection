@@ -1,0 +1,296 @@
+---
+title: "EDAiv assignment_Yiyun (Rona) Luo"
+output: html_document
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(zipcode)
+library(data.table)
+```
+
+
+```{r}
+inpatientCharges= read.csv("inpatientCharges.csv",stringsAsFactors = FALSE)
+inpatientCharges$Provider.Id = as.character(inpatientCharges$Provider.Id)
+inpatientCharges$Provider.Zip.Code = as.character(inpatientCharges$Provider.Zip.Code)
+
+sum(is.na(inpatientCharges)) # check if there is missing value
+dim(inpatientCharges)
+colnames(inpatientCharges)
+
+```
+
+```{r}
+#remove $
+inpatientCharges$Average.Covered.Charges = as.numeric(gsub("\\$", "", inpatientCharges$Average.Covered.Charges))
+
+inpatientCharges$Average.Total.Payments = as.numeric(gsub("\\$", "", inpatientCharges$Average.Total.Payments))
+
+inpatientCharges$Average.Medicare.Payments = as.numeric(gsub("\\$", "", inpatientCharges$Average.Medicare.Payments))
+
+str(inpatientCharges)
+
+```
+
+```{r}
+head(inpatientCharges)
+
+summary(inpatientCharges)
+
+```
+
+### new features created: count, meanCC, maxCC, minCC (with focus on Providers)
+##### Create the new features to know covered charge in each healthcare Provider
+##### Since the Cover Charges are vary from hospital to hospital, I would like to see the differnce between all the healthcare providers so that i will have a sense of how much they billed to inpatients
+
+```{r}
+stat_charges <- inpatientCharges %>% group_by(Provider.Id,Provider.Name) %>%
+  summarise(count=n(),
+            meanCC=mean(Average.Covered.Charges),
+            maxCC= max(Average.Covered.Charges),
+            minCC=min(Average.Covered.Charges)
+            )
+
+stat_charges
+```
+
+
+### EDA: 1). to know the average covered charege difference in each state 2). visualize the average covered charges distribution in each state
+
+```{r}
+inpatientCharges <- as.data.table(inpatientCharges)
+avg_cc <- inpatientCharges[,Average.Covered.Charges,by=Provider.State]
+ggplot(data = avg_cc,mapping = aes(y = Provider.State,x = Average.Covered.Charges,colour=Average.Covered.Charges))+
+  geom_point()
+
+
+ggplot(data = avg_cc,mapping = aes(y = Provider.State,x = Average.Covered.Charges))+
+  geom_boxplot(outlier.colour="red", outlier.shape=8,
+                outlier.size=4)
+
+
+```
+
+### New features: avg_coveredCost, max_coveredCost, min_coveredCost (with focus on DRG and Provider State)
+##### Created new features to get infomation of the average covered charge in each State for different DRG
+
+```{r}
+#1 aiming to know the average covered charge in each State for each DRG
+
+inpatientCharges<- as.data.frame(inpatientCharges)
+
+DRG_st_cc = inpatientCharges %>%
+  group_by(DRG.Definition,Provider.State )%>%
+  summarise(avg_coveredCost = mean(Average.Covered.Charges),
+            max_coveredCost= max(Average.Covered.Charges),
+            min_coveredCost = min(Average.Covered.Charges))
+DRG_st_cc
+  
+#for graphing
+#take DRG.Definition =="039 - EXTRACRANIAL PROCEDURES W/O CC/MCC" as an example
+
+DRG039_cc=DRG_st_cc %>% filter(DRG.Definition =="039 - EXTRACRANIAL PROCEDURES W/O CC/MCC")
+
+ggplot(DRG039_cc,aes(x=Provider.State, y =avg_coveredCost, fill =Provider.State ))+
+  geom_bar(stat = 'identity')+
+  coord_flip()+
+  theme_classic()
+
+```
+
+### New features: avg_tp, max_tp, min_tp
+##### Create new features to get the information of total payment the provider actually gets paid for DRG in different states
+
+```{r}
+#total payment for each DRG in each State
+ 
+DRG_st_tp = inpatientCharges %>%
+  group_by(DRG.Definition,Provider.State )%>%
+  summarise(avg_tp = mean(Average.Total.Payments),
+            max_tp= max(Average.Total.Payments),
+            min_tp = min(Average.Total.Payments))
+
+DRG_st_tp
+
+#visulization
+#take "039 - EXTRACRANIAL PROCEDURES W/O CC/MCC" as an example
+
+DRG039_tp=DRG_st_tp %>% filter(DRG.Definition =="039 - EXTRACRANIAL PROCEDURES W/O CC/MCC")
+
+ggplot(DRG039_tp,aes(x=Provider.State, y =avg_tp, fill =Provider.State ))+
+  geom_bar(stat = 'identity')+
+  coord_flip()+
+  theme_classic()
+
+
+```
+
+### New features:avg_medipayment, max_medipayment, min_medipayment
+##### Create new features to get information of medicare payment for each DRG in different states
+
+```{r}
+#medicare payment for each DRG in each State
+DRG_st_medi = inpatientCharges %>%
+  group_by(DRG.Definition,Provider.State )%>%
+  summarise(avg_medipayment = mean(Average.Medicare.Payments),
+            max_medipayment= max(Average.Medicare.Payments),
+            min_medipayment = min(Average.Medicare.Payments))
+DRG_st_medi
+```
+
+
+```{r}
+# total discharges & avg. total payment 
+# total discharges supposed to be positively related to the total payment. Build the table and aim to see any anomaly
+
+DRG_pro_td= inpatientCharges[c('DRG.Definition','Provider.Id','Provider.Name',
+           'Provider.State','Total.Discharges','Average.Total.Payments')]
+ 
+NJ_DRG039= DRG_pro_td %>% filter(Provider.State=='NJ' & DRG.Definition =="039 - EXTRACRANIAL PROCEDURES W/O CC/MCC")
+
+# visualization
+# Take state =NJ, DRG:039 - EXTRACRANIAL PROCEDURES W/O CC/MCC as an example
+#flag suspicious providor which provider id is 31009
+
+ggplot(NJ_DRG039, aes(x=Total.Discharges, y= Average.Total.Payments, color = Provider.Id, label=Provider.Id)) + 
+  geom_point()+
+  geom_text(size=3)+
+  theme_classic()
+
+```
+
+
+### New features: st_totaldischarges
+##### Create new feature to get information about total discharges in each state
+
+```{r}
+# all DRG total discharges in each state
+state_td = inpatientCharges %>% 
+  group_by(Provider.State)%>%
+  summarise(st_totaldischarges=sum(Total.Discharges))
+
+state_td
+```
+
+### New features: st_DRGtotaldischarges, percent_by_state, percent_by_DRG
+##### Create new features to get information about 1).the number of discharges billed by all providers for inpatient hospital services in each state for DRG 2). the percentage of DRG happened in terms of different states 3).the percentage of DRG happened in terms of different DRG
+
+```{r}
+#  total discharges in each state for each DRG
+state_td_DRG = inpatientCharges %>% 
+  group_by(DRG.Definition,Provider.State)%>%
+  summarise(st_DRGtotaldischarges=sum(Total.Discharges))
+
+state_td_DRG
+
+## aimming to know the percentage of DRG happened in different states
+
+for (i in 1:length(state_td_DRG$Provider.State)) {
+  
+    state_td_DRG$percent_by_state[i]=state_td_DRG$st_DRGtotaldischarges[i]/
+      state_td$st_totaldischarges[state_td$Provider.State==state_td_DRG$Provider.State[i]] 
+}
+
+#names(state_td_DRG)[names(state_td_DRG) == "percent"] <- "percent_by_state"
+
+```
+
+```{r}
+# Total Discharges for each DRG
+DRG_td = inpatientCharges %>% 
+  group_by(DRG.Definition)%>%
+  summarise(DRG_totalDischarges=sum(Total.Discharges))
+
+#compare the percentage of DRG happened among different states for same DRG
+
+for (i in 1:length(state_td_DRG$Provider.State)) {
+  
+    state_td_DRG$percent_by_DRG[i]=state_td_DRG$st_DRGtotaldischarges[i]/
+      DRG_td$DRG_totalDischarges[DRG_td$DRG.Definition==state_td_DRG$DRG.Definition[i]] 
+}
+
+state_td_DRG
+
+```
+
+### New features: other_payment, avg_otherpayment, max_otherpayment, min_otherpayment
+##### Create features to get information about the amount of payment other than medicare
+
+```{r}
+# amount of payment not get paid by medicare  for each DRG
+inpatientCharges$other_payment = inpatientCharges$Average.Total.Payments-
+  inpatientCharges$Average.Medicare.Payments
+
+# payment other than medicare for each DRG in different states
+DRG_st_op = inpatientCharges %>%
+  group_by(DRG.Definition,Provider.State)%>%
+  summarise(avg_otherpayment = mean(other_payment),
+            max_otherpayment= max(other_payment),
+            min_otherpayment = min(other_payment))
+DRG_st_op
+
+```
+
+
+### New feature:total_other_payment
+##### Create new feature to know the total other payment amount in each state
+
+```{r}
+#total other payment amount than medicare in each state
+st_op = inpatientCharges %>%
+  group_by(Provider.State)%>%
+  summarise(total_other_payment = sum(other_payment))
+       
+st_op     
+```
+
+### New features: avg_tp, avg_mp (focus on providers)
+##### Create new features to get information about Average.Total.Payments (hospital actually gets paid) and Average.Medicare.Payments (Medicare alone pays) for providers in same state and different state
+
+```{r}
+# DRG- state-Provider id- avg TotalPayment
+DRG_st_tp_mp = inpatientCharges %>%
+  group_by(DRG.Definition,Provider.State,Provider.Id,Provider.Name)%>%
+  summarise(avg_tp = mean(Average.Total.Payments),
+            avg_mp = mean(Average.Medicare.Payments))
+
+DRG_st_tp_mp
+
+```
+
+```{r}
+#visualization
+# take provider state: SD and DRG: 065 - INTRACRANIAL HEMORRHAGE OR CEREBRAL INFARCTION W CC as an example
+
+DRG_SD_065 = DRG_st_tp_mp %>% filter(DRG.Definition=="065 - INTRACRANIAL HEMORRHAGE OR CEREBRAL INFARCTION W CC" & Provider.State=="SD")
+
+barplot(t(as.matrix(DRG_SD_065[,5:6])),
+        beside = TRUE,
+        names.arg =DRG_SD_065$Provider.Id,
+        legend= TRUE,
+        ylim= c(0,10000),
+        ylab = "amount of payment")
+
+```
+
+
+```{r}
+#total payment suppose to be greater than madicare payment
+#check if any anomaly in the dataset
+
+DRG_st_tp_mp$diff= DRG_st_tp_mp$avg_tp - DRG_st_tp_mp$avg_mp
+sum(DRG_st_tp_mp$diff <0)
+
+```
+
+
+
+
+```
+
+
+
